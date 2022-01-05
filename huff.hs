@@ -63,14 +63,14 @@ makeHuff as = Huff codemap codetree
     -- codetree = maketree [(Leaf 'b',2), (Leaf 'a',5)]
 
     -- RECURSIVE STYLE
-    codemap = makemap Map.empty (HCode []) codetree
+    codemap = makemap Map.empty [] codetree
 
-    makemap ::  Ord a => (Map.Map a HCode) -> HCode -> BinTree a -> (Map.Map a HCode)
-    makemap m hcPref (Leaf x)  = Map.insert x hcPref m
-    makemap m (HCode pref) (BinTree l r)  = Map.union mleft mright
+    makemap ::  Ord a => (Map.Map a HCode) -> [Bool] -> BinTree a -> (Map.Map a HCode)
+    makemap m pref (Leaf x)  = Map.insert x (HCode $ reverse pref) m
+    makemap m pref (BinTree l r)  = Map.union mleft mright
       where
-        mleft = makemap Map.empty (HCode $ pref++[False]) l
-        mright = makemap Map.empty (HCode $ pref++[True]) r
+        mleft = makemap Map.empty (False:pref) l
+        mright = makemap Map.empty (True:pref) r
 
     -- --  CONTINUATION STYLE
     -- codemap = makemap Map.empty [] codetree id
