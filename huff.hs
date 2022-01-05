@@ -63,22 +63,21 @@ makeHuff as = Huff codemap codetree
     -- codetree = maketree [(Leaf 'b',2), (Leaf 'a',5)]
 
     -- RECURSIVE STYLE
-    codemap = makemap Map.empty [] codetree
-
-    makemap ::  Ord a => (Map.Map a HCode) -> [Bool] -> BinTree a -> (Map.Map a HCode)
-    makemap m pref (Leaf x)  = Map.insert x (HCode $ reverse pref) m
-    makemap m pref (BinTree l r)  = Map.union mleft mright
-      where
-        mleft = makemap Map.empty (False:pref) l
-        mright = makemap Map.empty (True:pref) r
-
-    -- --  CONTINUATION STYLE
-    -- codemap = makemap Map.empty [] codetree id
-    -- makemap ::  Ord a => (Map.Map a HCode) -> HCode -> BinTree a -> (Map.Map a HCode->Map.Map a HCode) -> (Map.Map a HCode)
-    -- makemap m pref (Leaf x) ret = ret $ Map.insert x pref m
-    -- makemap m pref (BinTree l r) ret = makemap m (pref++[False]) l doRight
+    -- codemap = makemap Map.empty [] codetree
+    -- makemap ::  Ord a => (Map.Map a HCode) -> [Bool] -> BinTree a -> (Map.Map a HCode)
+    -- makemap m pref (Leaf x)  = Map.insert x (HCode $ reverse pref) m
+    -- makemap m pref (BinTree l r) = addLeft $ addRight m
     --   where
-    --     doRight = \m -> makemap m (pref++[True]) r ret
+    --     addLeft = \m -> makemap m (False:pref) l
+    --     addRight = \m -> makemap m (True:pref) r
+
+    --  CONTINUATION STYLE
+    codemap = makemap Map.empty [] codetree id
+    makemap ::  Ord a => (Map.Map a HCode) -> [Bool] -> BinTree a -> (Map.Map a HCode->Map.Map a HCode) -> (Map.Map a HCode)
+    makemap m pref (Leaf x) ret = ret $ Map.insert x (HCode $ reverse pref) m
+    makemap m pref (BinTree l r) ret = makemap m (False:pref) l $ ret . addRight
+      where
+        addRight = \m -> makemap m (True:pref) r ret
 
 
     -- Instead of using insertBy, use a priorityQueue
