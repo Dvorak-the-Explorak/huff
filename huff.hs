@@ -14,24 +14,7 @@ solve xs = [show $ tree huff]
     -- codes = map (encode huff . pure) vals
     codes = encode huff vals
     huff = makeHuff xs
-    vals = unique xs
-
-
--- -- doing insertion sort
--- unique :: Ord a => [a] -> [a]
--- unique xs = unique' [] xs
---   where
---     unique' vs [] = vs
---     unique' vs (x:xs) = unique' (insertUnique x vs) xs
---     insertUnique x [] = [x]
---     insertUnique x (y:ys) = case compare x y of
---       LT -> x:y:ys
---       EQ -> y:ys
---       GT -> y:insertUnique x ys
-
--- turns out that's built into Data.List
-unique = nub
-
+    vals = nub xs
 
 
 
@@ -51,13 +34,18 @@ instance Functor BinTree where
 instance Show a => Show (BinTree a) where
   show (Leaf x) = show x
   show (BinTree l r) = show (l, r)
-type HCode = [Bool]
+
+newtype HCode = HCode [Bool]
+instance Semigroup HCode where
+  (HCode a) <> (HCode b) = HCode $ a <> b
+instance Monoid HCode where
+  mempty = HCode []
 
 
 writeCode :: HCode -> String
-writeCode [] = ""
-writeCode (False:xs) = "0" ++ writeCode xs
-writeCode (True:xs) = "1" ++ writeCode xs
+writeCode (HCode []) = ""
+writeCode (HCode (False:xs)) = "0" ++ writeCode (HCode xs)
+writeCode (HCode (True:xs)) = "1" ++ writeCode (HCode xs)
 
 
 
@@ -69,13 +57,13 @@ makeHuff as = Huff codemap codetree
     -- codetree = maketree [(Leaf 'b',2), (Leaf 'a',5)]
 
     -- RECURSIVE STYLE
-    codemap = makemap Map.empty [] codetree
+    codemap = makemap Map.empty (HCode []) codetree
 
     makemap ::  Ord a => (Map.Map a HCode) -> HCode -> BinTree a -> (Map.Map a HCode)
-    makemap m pref (Leaf x)  = Map.insert x pref m
-    makemap m pref (BinTree l r)  = makemap m' (pref++[True]) r
+    makemap m hcPref (Leaf x)  = Map.insert x hcPref m
+    makemap m (HCode pref) (BinTree l r)  = makemap m' (HCode $ pref++[True]) r
       where
-        m' = makemap m (pref++[False]) l
+        m' = makemap m (HCode $ pref++[False]) l
 
     -- --  CONTINUATION STYLE
     -- codemap = makemap Map.empty [] codetree id
@@ -97,8 +85,10 @@ makeHuff as = Huff codemap codetree
 
 
 encode :: Ord a => Huff a -> [a] -> HCode
-encode _ [] = []
-encode huff@(Huff names _) (a:as) = (names ! a) ++ encode huff as
+encode _ [] = HCode []
+-- encode huff@(Huff names _) (a:as) = (names ! a) ++ encode huff as
+-- encode huff@(Huff names _) xs = concat $ map (names!) xs
+encode huff@(Huff names _) xs = mconcat $ map (\x -> names ! x) xs
 
 -- decode :: Ord a => Huff a -> HCode -> [a]
 -- decode _ [] = []
@@ -114,17 +104,17 @@ encode huff@(Huff names _) (a:as) = (names ! a) ++ encode huff as
 -- follow the HCode down the Tree (False for Left, True for right)
 --  returns only as much as it can decode, the rest is dropped.  
 decode :: Ord a => Huff a -> HCode -> [a]
-decode _ [] = []
+decode _ (HCode []) = []
 decode huff code = decode' (tree huff) code id
   where
     -- continuation style for the end
     -- if code string runs out mid-code, it'll call invalid
     --  otherwise, it'll just return
     -- decode' :: Ord a => BinTree a -> HCode -> ([a] -> [a]) -> [a]
-    decode' _ [] done = done []
+    decode' _ (HCode []) done = done []
     decode' (Leaf x) bs done = x:(decode' (tree huff) bs id)
-    decode' (BinTree l r) (False:bs) done = decode' l bs invalid
-    decode' (BinTree l r) (True:bs) done = decode' r bs invalid
+    decode' (BinTree l r) (HCode (False:bs)) done = decode' l (HCode bs) invalid
+    decode' (BinTree l r) (HCode (True:bs)) done = decode' r (HCode bs) invalid
     invalid x = []
 
 
