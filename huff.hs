@@ -1,24 +1,28 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 import Data.List
+import Data.String
 import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
 
+import Debug.Trace
 
+main = do
+  input <- getContents
 
-main = interact $ 
-  show . solve
+  let huff = makeHuff input
+  -- print $ tree huff
 
-solve :: String -> [String]
-solve xs = [show $ tree huff]
-  -- [decode huff codes] ++ (map writeCode $ [encode huff "a", encode huff "b", encode huff "abba"])
-  where
-    -- codes = map (encode huff . pure) vals
-    codes = encode huff vals
-    huff = makeHuff xs
-    vals = nub xs
+  let codes = map (encode huff) $ map (:[]) $ take 5 $ nub input
+  print codes
+
+  print $ map (decode huff) codes
+  return ()
 
 
 
 -- binary codes (left/right only)
+
 data Huff a = Huff
   { names :: Map.Map a HCode
   , tree :: BinTree a
@@ -40,13 +44,15 @@ instance Semigroup HCode where
   (HCode a) <> (HCode b) = HCode $ a <> b
 instance Monoid HCode where
   mempty = HCode []
+instance IsString HCode where
+  fromString xs = HCode $ map (\x -> if x == '0' then False else True) xs
 
+instance Show HCode where
+  show (HCode xs) = map binShow xs
 
-writeCode :: HCode -> String
-writeCode (HCode []) = ""
-writeCode (HCode (False:xs)) = "0" ++ writeCode (HCode xs)
-writeCode (HCode (True:xs)) = "1" ++ writeCode (HCode xs)
-
+binShow :: Bool -> Char
+binShow False = '0'
+binShow True = '1'
 
 
 -- makeHuff :: Ord a => [a] -> Huff a
@@ -61,9 +67,10 @@ makeHuff as = Huff codemap codetree
 
     makemap ::  Ord a => (Map.Map a HCode) -> HCode -> BinTree a -> (Map.Map a HCode)
     makemap m hcPref (Leaf x)  = Map.insert x hcPref m
-    makemap m (HCode pref) (BinTree l r)  = makemap m' (HCode $ pref++[True]) r
+    makemap m (HCode pref) (BinTree l r)  = Map.union mleft mright
       where
-        m' = makemap m (HCode $ pref++[False]) l
+        mleft = makemap Map.empty (HCode $ pref++[False]) l
+        mright = makemap Map.empty (HCode $ pref++[True]) r
 
     -- --  CONTINUATION STYLE
     -- codemap = makemap Map.empty [] codetree id
@@ -73,6 +80,8 @@ makeHuff as = Huff codemap codetree
     --   where
     --     doRight = \m -> makemap m (pref++[True]) r ret
 
+
+    -- Instead of using insertBy, use a priorityQueue
     maketree :: Ord a => [(BinTree a,Int)] -> BinTree a
     maketree [] = error "Attempted to create huffman encoder from empty list"
     maketree [x] = fst x
@@ -80,8 +89,9 @@ makeHuff as = Huff codemap codetree
     maketree ((x1,f1) : (x2,f2) : xs) = maketree (insertBy comp2 (BinTree x1 x2, f1+f2) xs) 
 
     comp2 = (\(_,f1) (_,f2) -> compare f1 f2)
+    -- freqs = sortBy comp2 $ map (\x -> (Leaf $ head x, length x)) $ group as
 
-    freqs = sortBy comp2 $ map (\x -> (Leaf $ head x, length x)) $ group as
+    freqs = sortOn snd $ map (\x -> (Leaf $ head x, length x)) $ group as
 
 
 encode :: Ord a => Huff a -> [a] -> HCode
@@ -102,8 +112,9 @@ encode huff@(Huff names _) xs = mconcat $ map (\x -> names ! x) xs
 
 
 -- follow the HCode down the Tree (False for Left, True for right)
---  returns only as much as it can decode, the rest is dropped.  
-decode :: Ord a => Huff a -> HCode -> [a]
+-- If it can't decode the WHOLE thing, it'll return empty list
+-- decode :: Ord a => Huff a -> HCode -> [a]
+decode :: Huff a -> HCode -> [a]
 decode _ (HCode []) = []
 decode huff code = decode' (tree huff) code id
   where
@@ -111,8 +122,8 @@ decode huff code = decode' (tree huff) code id
     -- if code string runs out mid-code, it'll call invalid
     --  otherwise, it'll just return
     -- decode' :: Ord a => BinTree a -> HCode -> ([a] -> [a]) -> [a]
+    decode' (Leaf x) bs done = decode' (tree huff) bs $ (x:)  
     decode' _ (HCode []) done = done []
-    decode' (Leaf x) bs done = x:(decode' (tree huff) bs id)
     decode' (BinTree l r) (HCode (False:bs)) done = decode' l (HCode bs) invalid
     decode' (BinTree l r) (HCode (True:bs)) done = decode' r (HCode bs) invalid
     invalid x = []
