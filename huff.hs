@@ -4,114 +4,68 @@ import Data.List
 import Data.String
 import Data.Map.Strict ((!))
 import qualified Data.Map.Strict as Map
-import Data.Hashable
 
 import qualified Data.PQueue.Prio.Min as PQ
+import Types
+import Storable
 
 import Debug.Trace
 
-
-type PQ = PQ.MinPQueue
-type Map = Map.Map
+instance HuffCodable Char where
+  storeTree (Leaf c) = "L" ++ [c]
+  storeTree (BinTree l r) = "F" ++ storeTree l ++ storeTree r
 
 main = do
+
   input <- getContents
 
   let huff = makeHuff input
+
+
   -- print $ tree huff
+  putStrLn "Input size:"
+  print $ 8 * length input 
 
-  let codes = sortOn (length.unHCode) $ map (encode huff) $ map (:[]) $ nub input
-  print $ take 5 codes
+  putStrLn "Compressed size (excluding tree):"
+  print $ length . unHCode $ mconcat $ map (encode huff) $  map (:[]) input
 
-  print $ map (decode huff) $ take 5 codes
-  return ()
+  putStrLn $ storeHuff huff
 
+  -- let codes = sortOn (length.unHCode) $ map (encode huff) $ map (:[]) $ nub input
+  -- print $ take 5 codes
 
-
--- binary codes (left/right only)
-
-data Huff a = Huff
-  { names :: Map a HCode
-  , tree :: BinTree a
-  }
--- could be invalid (eg if tree only has a leaf)
+  -- print $ map (decode huff) $ take 5 codes
 
 
-data BinTree a = Leaf a | BinTree (BinTree a) (BinTree a)
 
-instance Functor BinTree where
-  fmap f (Leaf x) = Leaf $ f x
-  fmap f (BinTree l r) = BinTree (fmap f l) (fmap f r)
-instance Show a => Show (BinTree a) where
-  show (Leaf x) = show x
-  show (BinTree l r) = show (l, r)
-
-newtype HCode = HCode { unHCode :: [Bool] }
-instance Semigroup HCode where
-  (HCode a) <> (HCode b) = HCode $ a <> b
-instance Monoid HCode where
-  mempty = HCode []
-instance IsString HCode where
-  fromString xs = HCode $ map (\x -> if x == '0' then False else True) xs
-
-instance Show HCode where
-  show (HCode xs) = map binShow xs
-
-binShow :: Bool -> Char
-binShow False = '0'
-binShow True = '1'
 
 -- makeHuff :: Ord a => [a] -> Huff a
 makeHuff :: [Char] -> Huff Char
+makeHuff [] = error "Attempted to create huffman encoder from empty list"
 makeHuff as = Huff codemap codetree
   where
-    -- codetree = maketree [(Leaf 'b',2), (Leaf 'a',5)]
+    codemap = makeHuffMap Map.empty [] codetree
+    codetree = makeHuffTree $ PQ.fromList freqs
+    freqs = map (\x -> (length x, Leaf $ head x)) $ group $ sort as 
 
-    -- RECURSIVE STYLE
-    codemap = makemap Map.empty [] codetree
-    makemap ::  Ord a => (Map a HCode) -> [Bool] -> BinTree a -> (Map a HCode)
-    makemap m pref (Leaf x)  = Map.insert x (HCode $ reverse pref) m
-    makemap m pref (BinTree l r) = addLeft $ addRight m
-      where
-        addLeft = \m -> makemap m (False:pref) l
-        addRight = \m -> makemap m (True:pref) r
+makeHuffMap ::  Ord a => (Map a HCode) -> [Bool] -> BinTree a -> (Map a HCode)
+makeHuffMap m pref (Leaf x)  = Map.insert x (HCode $ reverse pref) m
+makeHuffMap m pref (BinTree l r) = addLeft $ addRight m
+  where
+    addLeft = \m -> makeHuffMap m (False:pref) l
+    addRight = \m -> makeHuffMap m (True:pref) r
+    
 
-    -- --  CONTINUATION STYLE 
-    -- WAY SLOWER, HAS SPACE LEAKS
-    -- codemap = makemap Map.empty [] codetree id
-    -- makemap ::  (Hashable a, Ord a) => (Map a HCode) -> [Bool] -> BinTree a -> (Map a HCode->Map a HCode) -> (Map a HCode)
-    -- makemap m pref (Leaf x) ret = ret $ Map.insert x (HCode $ reverse pref) m
-    -- makemap m pref (BinTree l r) ret = makemap m (False:pref) l $ ret . addRight
-    --   where
-    --     addRight = \m -> makemap m (True:pref) r ret
-
-    -- codetree = maketree freqs
-    -- -- freqs :: [(BinTree a, Int)]
-    -- freqs = sortOn snd $ map (\x -> (Leaf $ head x, length x)) $ group $ sort as 
-    -- comp2 (_,x1) (_,x2) = compare x1 x2
-    -- maketree :: Ord a => [(BinTree a,Int)] -> BinTree a
-    -- maketree [] = error "Attempted to create huffman encoder from empty list"
-    -- maketree [x] = fst x
-    -- maketree [(x,f1),(y,f2)] = BinTree x y
-    -- maketree ((x1,f1) : (x2,f2) : xs) = maketree (insertBy comp2 (BinTree x1 x2, f1+f2) xs) 
+makeHuffTree :: Ord a => PQ Int (BinTree a) -> BinTree a
+makeHuffTree pq = case firstTwoPQ pq of
+    Nothing -> if null pq 
+                then error "Attempted to create huffman encoder from empty list"
+                else snd $ PQ.findMin pq
+    Just (((k1,v1), (k2,v2)), pq') -> makeHuffTree $ PQ.insert (k1+k2) (BinTree v1 v2) pq'
 
 
-
-
-
-    -- Instead of using insertBy, use a priorityQueue  
-    codetree = maketree $ PQ.fromList freqs
-    freqs = map (\x -> (length x, Leaf $ head x)) $ group $ sort as  
-    maketree :: Ord a => PQ Int (BinTree a) -> BinTree a
-    maketree pq = case firstTwoPQ pq of
-      Nothing -> if null pq 
-                  then error "Attempted to create huffman encoder from empty list"
-                  else snd $ PQ.findMin pq
-      Just (((k1,v1), (k2,v2)), pq') -> maketree $ PQ.insert (k1+k2) (BinTree v1 v2) pq'
-
-
-
-
+-- get the first two k/v pairs from the pqueue, or Nothing
+--  return the pqueue with elements removed on sucess
 firstTwoPQ :: Ord k =>  PQ k v -> Maybe (((k,v), (k,v)), PQ k v)
 firstTwoPQ pq = do
   ((k1,v1), pq') <- PQ.minViewWithKey pq
@@ -119,38 +73,89 @@ firstTwoPQ pq = do
   return (((k1,v1), (k2,v2)), pq'')
 
 
-encode :: (Hashable a, Ord a) => Huff a -> [a] -> HCode
+encode :: Ord a => Huff a -> [a] -> HCode
 encode _ [] = HCode []
 -- encode huff@(Huff names _) (a:as) = (names ! a) ++ encode huff as
 -- encode huff@(Huff names _) xs = concat $ map (names!) xs
 encode huff@(Huff names _) xs = mconcat $ map (\x -> names ! x) xs
 
--- decode :: Ord a => Huff a -> HCode -> [a]
--- decode _ [] = []
--- decode huff code = decode' (tree huff) code
---   where
---     decode' _ [] = [] -- this may be halfway through a name
---     decode' (Leaf a) bs = a:(decode' (tree huff) bs)
---     decode' (BinTree l r) (False:bs) = decode' l bs
---     decode' (BinTree l r) (True:bs) = decode' r bs
 
 
 
--- follow the HCode down the Tree (False for Left, True for right)
--- If it can't decode the WHOLE thing, it'll return empty list
--- decode :: Ord a => Huff a -> HCode -> [a]
-decode :: Huff a -> HCode -> [a]
+
+-- RECURSIVE
+-- Returns as much as it can encode (drops stuff off the end)
+decode :: Ord a => Huff a -> HCode -> [a]
 decode _ (HCode []) = []
-decode huff code = decode' (tree huff) code id
+decode huff code = decode' (tree huff) code
   where
-    -- continuation style for the end
-    -- if code string runs out mid-code, it'll call invalid
-    --  otherwise, it'll just return
-    -- decode' :: Ord a => BinTree a -> HCode -> ([a] -> [a]) -> [a]
-    decode' (Leaf x) bs done = decode' (tree huff) bs $ (x:)  
-    decode' _ (HCode []) done = done []
-    decode' (BinTree l r) (HCode (False:bs)) done = decode' l (HCode bs) invalid
-    decode' (BinTree l r) (HCode (True:bs)) done = decode' r (HCode bs) invalid
-    invalid x = []
+    decode' (Leaf a) bs = a:(decode' (tree huff) bs)
+    decode' _ (HCode []) = [] -- this may be halfway through a name
+    decode' (BinTree l r) (HCode (False:bs)) = decode' l (HCode bs)
+    decode' (BinTree l r) (HCode (True:bs)) = decode' r (HCode bs)
 
 
+-- CPS
+-- -- If it can't decode the WHOLE thing, it'll return empty list
+-- decode :: Huff a -> HCode -> [a]
+-- decode _ (HCode []) = []
+-- decode huff code = decode' (tree huff) code id
+--   where
+--     -- continuation style for the end
+--     -- if code string runs out mid-code, it'll call invalid
+--     --  otherwise, it'll just return
+--     -- decode' :: Ord a => BinTree a -> HCode -> ([a] -> [a]) -> [a]
+--     decode' (Leaf x) bs done = decode' (tree huff) bs $ (x:)  
+--     decode' _ (HCode []) done = done []
+--     decode' (BinTree l r) (HCode (False:bs)) done = decode' l (HCode bs) invalid
+--     decode' (BinTree l r) (HCode (True:bs)) done = decode' r (HCode bs) invalid
+--     invalid x = []
+
+-- number of leading ^ shows the height of the power tower
+--  read the first digit as n
+--  for each ^ at the start, n <- read n digits
+storeNum :: Int -> String
+storeNum n 
+  | n < 0 = "-" ++ storeNum (-n)
+  | n < 10 = show n
+  | otherwise = "^" ++ storeNum (length $ show n) ++ show n
+
+
+-- -- #TODO generalise to not just Char
+-- storeHuff :: Huff Char -> String
+-- storeHuff (Huff _ tree) = storeTree tree
+
+-- storeTree :: BinTree Char -> String
+-- storeTree (Leaf x) = "1" ++ show x
+-- storeTree (BinTree l r) = "0" ++ storeTree l ++ storeTree r
+
+storeHuff :: HuffCodable a => Huff a -> String
+storeHuff (Huff _ tree) = storeTree tree
+
+
+-- storeTree :: Show a => BinTree a -> String
+-- storeTree (Leaf x) = "L" ++ storeNum (length $ show x) ++ show x
+-- storeTree (BinTree l r) = "F" ++ storeTree l ++ storeTree r
+
+-- storeTree :: Show a => BinTree a -> String
+-- storeTree t = trace (show n) $ concat result
+--   where
+--     result = map ($ padEnd n) stringies
+--     (n,stringies) = go 0 t
+
+--     padEnd n [] = take n $ repeat '0'
+--     padEnd n (x:xs) = x : padEnd (n-1) xs
+
+--     -- go :: Int -> BinTree a -> (Int, [(String -> String) -> String])
+--     go n (Leaf x) = (max n $ length $ show x, [(ignore "L"), (allow $ show x)])
+--     go n (BinTree l r) = (n', (ignore "F"):l' ++ r')
+--       where 
+--         (nl, l') = go n l
+--         (n', r') = go nl r
+
+
+-- allow :: a -> (a -> b) -> b
+-- allow x = ($x)
+
+-- ignore :: b -> (a -> b) -> b
+-- ignore y = const y
